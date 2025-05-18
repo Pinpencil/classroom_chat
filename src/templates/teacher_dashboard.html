@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>教师仪表板 - 课堂互动系统</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="#">课堂互动系统</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav me-auto">
+                    <li class="nav-item">
+                        <a class="nav-link active" href="{{ url_for('teacher_dashboard') }}">仪表板</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('import_students') }}">导入学生</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('create_chatroom') }}">创建聊天室</a>
+                    </li>
+                </ul>
+                <div class="d-flex">
+                    <span class="navbar-text me-3">
+                        欢迎，{{ session.user_name }}
+                    </span>
+                    <a href="{{ url_for('logout') }}" class="btn btn-outline-light btn-sm">退出登录</a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <div class="row mb-4">
+            <div class="col">
+                <h2>我的聊天室</h2>
+            </div>
+            <div class="col-auto">
+                <a href="{{ url_for('create_chatroom') }}" class="btn btn-success">
+                    <i class="bi bi-plus-circle"></i> 创建新聊天室
+                </a>
+            </div>
+        </div>
+
+        {% if chatrooms %}
+        <div class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-4">
+            {% for chatroom in chatrooms %}
+            <div class="col">
+                <div class="card h-100 shadow-sm">
+                    <div class="card-body">
+                        <h5 class="card-title">{{ chatroom.name }}</h5>
+                        <p class="card-text text-muted">
+                            创建于: {{ chatroom.created_at.strftime('%Y-%m-%d %H:%M') }}
+                        </p>
+                        <div class="d-flex justify-content-between align-items-center">
+                            <span class="badge bg-{{ 'success' if chatroom.active else 'secondary' }}">
+                                {{ '活跃' if chatroom.active else '已关闭' }}
+                            </span>
+                            <a href="{{ url_for('chatroom', chatroom_id=chatroom.id) }}" class="btn btn-primary">
+                                进入聊天室
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="alert alert-info">
+            <i class="bi bi-info-circle"></i> 您还没有创建任何聊天室，点击上方"创建新聊天室"按钮开始创建。
+        </div>
+        {% endif %}
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

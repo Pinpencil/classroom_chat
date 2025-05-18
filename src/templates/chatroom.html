@@ -1,0 +1,987 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>聊天室 - 课堂互动系统</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <style>
+        .chat-container {
+            height: 400px;
+            overflow-y: auto;
+        }
+        .message {
+            margin-bottom: 10px;
+            padding: 10px;
+            border-radius: 10px;
+        }
+        .message-self {
+            background-color: #d1ecf1;
+            margin-left: 20%;
+        }
+        .message-other {
+            background-color: #f8f9fa;
+            margin-right: 20%;
+        }
+        .message-teacher {
+            background-color: #fff3cd;
+        }
+        .message-private {
+            background-color: #d4edda;
+        }
+        .nav-tabs .nav-link {
+            color: #495057;
+        }
+        .nav-tabs .nav-link.active {
+            color: #007bff;
+            font-weight: bold;
+        }
+        .user-list {
+            height: 300px;
+            overflow-y: auto;
+        }
+        .question-card {
+            margin-bottom: 15px;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="#">课堂互动系统</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav me-auto">
+                    {% if session.user_role == 'teacher' %}
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('teacher_dashboard') }}">返回仪表板</a>
+                    </li>
+                    {% else %}
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('student_select') }}">返回聊天室列表</a>
+                    </li>
+                    {% endif %}
+                </ul>
+                <div class="d-flex">
+                    <span class="navbar-text me-3">
+                        {{ session.user_name }} ({{ '教师' if session.user_role == 'teacher' else '学生' }})
+                    </span>
+                    <a href="{{ url_for('logout') }}" class="btn btn-outline-light btn-sm">退出登录</a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <h2>{{ chatroom.name }}</h2>
+        
+        <div class="row mt-4">
+            <!-- 左侧：聊天区和消息发送 -->
+            <div class="col-md-8">
+                <div class="card shadow">
+                    <div class="card-header">
+                        <ul class="nav nav-tabs card-header-tabs" id="chatTabs" role="tablist">
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link active" id="public-tab" data-bs-toggle="tab" data-bs-target="#public" type="button" role="tab" aria-controls="public" aria-selected="true">公共聊天</button>
+                            </li>
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link" id="private-tab" data-bs-toggle="tab" data-bs-target="#private" type="button" role="tab" aria-controls="private" aria-selected="false">私人消息</button>
+                            </li>
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link" id="questions-tab" data-bs-toggle="tab" data-bs-target="#questions" type="button" role="tab" aria-controls="questions" aria-selected="false">题目</button>
+                            </li>
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link" id="attendance-tab" data-bs-toggle="tab" data-bs-target="#attendance" type="button" role="tab" aria-controls="attendance" aria-selected="false">签到</button>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="card-body">
+                        <div class="tab-content" id="chatTabsContent">
+                            <!-- 公共聊天 -->
+                            <div class="tab-pane fade show active" id="public" role="tabpanel" aria-labelledby="public-tab">
+                                <div class="chat-container" id="publicChatContainer">
+                                    {% for message in public_messages %}
+                                    <div class="message {{ 'message-self' if message.sender_id == session.user_id else 'message-other' }} {{ 'message-teacher' if message.sender_role == 'teacher' else '' }}">
+                                        <div class="d-flex justify-content-between">
+                                            <strong>{{ message.sender_name }}</strong>
+                                            <small class="text-muted">{{ message.sent_at.strftime('%H:%M:%S') }}</small>
+                                        </div>
+                                        <div>{{ message.content }}</div>
+                                    </div>
+                                    {% endfor %}
+                                </div>
+                                <div class="mt-3">
+                                    <form id="publicMessageForm">
+                                        <div class="input-group">
+                                            <input type="text" class="form-control" id="publicMessageInput" placeholder="输入消息...">
+                                            <button class="btn btn-primary" type="submit">发送</button>
+                                        </div>
+                                    </form>
+                                </div>
+                            </div>
+                            
+                            <!-- 私人消息 -->
+                            <div class="tab-pane fade" id="private" role="tabpanel" aria-labelledby="private-tab">
+                                <div class="row">
+                                    <div class="col-md-4">
+                                        <div class="card mb-3">
+                                            <div class="card-header">选择接收者</div>
+                                            <div class="card-body p-0">
+                                                <div class="list-group user-list" id="userList">
+                                                    {% for member in members %}
+                                                    {% if member.id != session.user_id %}
+                                                    <button type="button" class="list-group-item list-group-item-action user-item" data-user-id="{{ member.id }}" data-user-name="{{ member.name }}">
+                                                        {{ member.name }} {{ '(教师)' if member.role == 'teacher' else '' }}
+                                                    </button>
+                                                    {% endif %}
+                                                    {% endfor %}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-8">
+                                        <div class="chat-container" id="privateChatContainer">
+                                            <div class="text-center text-muted my-5">
+                                                <i class="bi bi-chat-dots"></i>
+                                                <p>选择一个用户开始私聊</p>
+                                            </div>
+                                            {% for message in private_messages %}
+                                            <div class="message message-private {{ 'message-self' if message.sender_id == session.user_id else 'message-other' }}" data-sender="{{ message.sender_id }}" data-receiver="{{ message.receiver_id }}">
+                                                <div class="d-flex justify-content-between">
+                                                    <strong>{{ message.sender_name }} → {{ message.receiver_name }}</strong>
+                                                    <small class="text-muted">{{ message.sent_at.strftime('%H:%M:%S') }}</small>
+                                                </div>
+                                                <div>{{ message.content }}</div>
+                                            </div>
+                                            {% endfor %}
+                                        </div>
+                                        <div class="mt-3">
+                                            <form id="privateMessageForm">
+                                                <input type="hidden" id="receiverId" value="">
+                                                <input type="hidden" id="receiverName" value="">
+                                                <div class="input-group">
+                                                    <input type="text" class="form-control" id="privateMessageInput" placeholder="选择接收者后输入消息..." disabled>
+                                                    <button class="btn btn-primary" type="submit" disabled>发送</button>
+                                                </div>
+                                            </form>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- 题目 -->
+                            <div class="tab-pane fade" id="questions" role="tabpanel" aria-labelledby="questions-tab">
+                                {% if session.user_role == 'teacher' %}
+                                <div class="mb-4">
+                                    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#createQuestionModal">
+                                        <i class="bi bi-plus-circle"></i> 创建新题目
+                                    </button>
+                                </div>
+                                {% endif %}
+                                
+                                <div id="questionsList">
+                                    {% if questions %}
+                                    {% for question in questions %}
+                                    <div class="card question-card">
+                                        <div class="card-header d-flex justify-content-between align-items-center">
+                                            <h5 class="mb-0">{{ question.title }}</h5>
+                                            <span class="badge bg-{{ 'primary' if question.type == 'choice' else 'success' if question.type == 'open' else 'info' }}">
+                                                {{ '选择题' if question.type == 'choice' else '开放题' if question.type == 'open' else '简答题' }}
+                                            </span>
+                                        </div>
+                                        <div class="card-body">
+                                            <p>{{ question.content }}</p>
+                                            
+                                            {% if question.type == 'choice' and question.options %}
+                                            <div class="mb-3">
+                                                {% set options = question.options|tojson|safe|fromjson %}
+                                                {% for option in options %}
+                                                <div class="form-check">
+                                                    <input class="form-check-input question-option" type="radio" name="question_{{ question.id }}" id="option_{{ question.id }}_{{ loop.index0 }}" value="{{ loop.index0 }}">
+                                                    <label class="form-check-label" for="option_{{ question.id }}_{{ loop.index0 }}">
+                                                        {{ option }}
+                                                    </label>
+                                                </div>
+                                                {% endfor %}
+                                            </div>
+                                            {% else %}
+                                            <div class="mb-3">
+                                                <textarea class="form-control question-answer" rows="3" placeholder="请输入您的答案..." data-question-id="{{ question.id }}"></textarea>
+                                            </div>
+                                            {% endif %}
+                                            
+                                            <button class="btn btn-primary submit-answer" data-question-id="{{ question.id }}" data-question-type="{{ question.type }}">
+                                                提交答案
+                                            </button>
+                                        </div>
+                                    </div>
+                                    {% endfor %}
+                                    {% else %}
+                                    <div class="text-center text-muted my-5">
+                                        <i class="bi bi-question-circle"></i>
+                                        <p>暂无题目</p>
+                                    </div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                            
+                            <!-- 签到 -->
+                            <div class="tab-pane fade" id="attendance" role="tabpanel" aria-labelledby="attendance-tab">
+                                {% if session.user_role == 'teacher' %}
+                                <div class="mb-4">
+                                    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#createAttendanceModal">
+                                        <i class="bi bi-plus-circle"></i> 创建新签到
+                                    </button>
+                                </div>
+                                {% endif %}
+                                
+                                <div id="attendanceList">
+                                    {% if attendances %}
+                                    {% for attendance in attendances %}
+                                    <div class="card mb-3">
+                                        <div class="card-header d-flex justify-content-between align-items-center">
+                                            <h5 class="mb-0">{{ attendance.title }}</h5>
+                                            <span class="badge bg-{{ 'primary' if attendance.type == 'click' else 'warning' }}">
+                                                {{ '点击签到' if attendance.type == 'click' else '密码签到' }}
+                                            </span>
+                                        </div>
+                                        <div class="card-body">
+                                            {% if attendance.expire_at %}
+                                            <p class="text-muted">截止时间: {{ attendance.expire_at.strftime('%Y-%m-%d %H:%M:%S') }}</p>
+                                            {% endif %}
+                                            
+                                            {% if session.user_role == 'student' %}
+                                                {% set signed = false %}
+                                                {% for record in attendance_records %}
+                                                    {% if record.attendance_id == attendance.id %}
+                                                        {% set signed = true %}
+                                                    {% endif %}
+                                                {% endfor %}
+                                                
+                                                {% if signed %}
+                                                <div class="alert alert-success">
+                                                    <i class="bi bi-check-circle"></i> 您已完成签到
+                                                </div>
+                                                {% else %}
+                                                    {% if attendance.type == 'click' %}
+                                                    <button class="btn btn-primary attendance-sign" data-attendance-id="{{ attendance.id }}" data-attendance-type="click">
+                                                        点击签到
+                                                    </button>
+                                                    {% else %}
+                                                    <div class="input-group mb-3">
+                                                        <input type="password" class="form-control attendance-password" placeholder="请输入签到密码">
+                                                        <button class="btn btn-primary attendance-sign" data-attendance-id="{{ attendance.id }}" data-attendance-type="password">
+                                                            密码签到
+                                                        </button>
+                                                    </div>
+                                                    {% endif %}
+                                                {% endif %}
+                                            {% else %}
+                                                <button class="btn btn-info view-attendance-records" data-attendance-id="{{ attendance.id }}">
+                                                    查看签到记录
+                                                </button>
+                                            {% endif %}
+                                        </div>
+                                    </div>
+                                    {% endfor %}
+                                    {% else %}
+                                    <div class="text-center text-muted my-5">
+                                        <i class="bi bi-calendar-check"></i>
+                                        <p>暂无签到</p>
+                                    </div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 右侧：成员列表 -->
+            <div class="col-md-4">
+                <div class="card shadow">
+                    <div class="card-header">
+                        <h5 class="mb-0">成员列表</h5>
+                    </div>
+                    <div class="card-body p-0">
+                        <ul class="list-group list-group-flush" id="membersList">
+                            {% for member in members %}
+                            <li class="list-group-item d-flex justify-content-between align-items-center">
+                                {{ member.name }}
+                                {% if member.role == 'teacher' %}
+                                <span class="badge bg-primary rounded-pill">教师</span>
+                                {% endif %}
+                            </li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 创建题目模态框 -->
+    {% if session.user_role == 'teacher' %}
+    <div class="modal fade" id="createQuestionModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">创建新题目</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="createQuestionForm">
+                        <div class="mb-3">
+                            <label for="questionTitle" class="form-label">题目标题</label>
+                            <input type="text" class="form-control" id="questionTitle" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="questionContent" class="form-label">题目内容</label>
+                            <textarea class="form-control" id="questionContent" rows="3" required></textarea>
+                        </div>
+                        <div class="mb-3">
+                            <label for="questionType" class="form-label">题目类型</label>
+                            <select class="form-select" id="questionType" required>
+                                <option value="choice">选择题</option>
+                                <option value="open">开放性问题</option>
+                                <option value="short">简答题</option>
+                            </select>
+                        </div>
+                        
+                        <div id="choiceOptionsContainer">
+                            <div class="mb-3">
+                                <label class="form-label">选项</label>
+                                <div id="optionsContainer">
+                                    <div class="input-group mb-2">
+                                        <div class="input-group-text">
+                                            <input class="form-check-input mt-0" type="radio" name="correctOption" value="0" checked>
+                                        </div>
+                                        <input type="text" class="form-control option-input" placeholder="选项1">
+                                        <button type="button" class="btn btn-outline-danger remove-option" disabled>删除</button>
+                                    </div>
+                                    <div class="input-group mb-2">
+                                        <div class="input-group-text">
+                                            <input class="form-check-input mt-0" type="radio" name="correctOption" value="1">
+                                        </div>
+                                        <input type="text" class="form-control option-input" placeholder="选项2">
+                                        <button type="button" class="btn btn-outline-danger remove-option" disabled>删除</button>
+                                    </div>
+                                </div>
+                                <button type="button" class="btn btn-outline-primary btn-sm mt-2" id="addOption">
+                                    <i class="bi bi-plus-circle"></i> 添加选项
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div id="otherAnswerContainer" style="display: none;">
+                            <div class="mb-3">
+                                <label for="questionAnswer" class="form-label">参考答案</label>
+                                <textarea class="form-control" id="questionAnswer" rows="2"></textarea>
+                                <div class="form-text">参考答案仅供教师参考，不会展示给学生。</div>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-primary" id="submitQuestion">创建题目</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 创建签到模态框 -->
+    <div class="modal fade" id="createAttendanceModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">创建新签到</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="createAttendanceForm">
+                        <div class="mb-3">
+                            <label for="attendanceTitle" class="form-label">签到标题</label>
+                            <input type="text" class="form-control" id="attendanceTitle" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="attendanceType" class="form-label">签到类型</label>
+                            <select class="form-select" id="attendanceType" required>
+                                <option value="click">点击签到</option>
+                                <option value="password">密码签到</option>
+                            </select>
+                        </div>
+                        
+                        <div id="passwordContainer" style="display: none;">
+                            <div class="mb-3">
+                                <label for="attendancePassword" class="form-label">签到密码</label>
+                                <input type="text" class="form-control" id="attendancePassword">
+                            </div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="expireMinutes" class="form-label">有效时间（分钟）</label>
+                            <input type="number" class="form-control" id="expireMinutes" min="1" value="30">
+                            <div class="form-text">签到将在指定时间后自动结束，留空表示永不过期。</div>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-primary" id="submitAttendance">创建签到</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jquery@3.6.0/dist/jquery.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/socket.io-client@4.5.0/dist/socket.io.min.js"></script>
+    <script>
+        $(document).ready(function() {
+            // 连接WebSocket
+            const socket = io();
+            const chatroomId = {{ chatroom.id }};
+            const userId = {{ session.user_id }};
+            const userName = "{{ session.user_name }}";
+            const userRole = "{{ session.user_role }}";
+            
+            // 加入聊天室
+            socket.emit('join', { chatroom_id: chatroomId });
+            
+            // 滚动到底部
+            function scrollToBottom(elementId) {
+                const element = document.getElementById(elementId);
+                element.scrollTop = element.scrollHeight;
+            }
+            
+            // 初始滚动到底部
+            scrollToBottom('publicChatContainer');
+            
+            // 发送公共消息
+            $('#publicMessageForm').submit(function(e) {
+                e.preventDefault();
+                const content = $('#publicMessageInput').val().trim();
+                if (content) {
+                    $.ajax({
+                        url: '/api/message/public',
+                        type: 'POST',
+                        contentType: 'application/json',
+                        data: JSON.stringify({
+                            content: content,
+                            chatroom_id: chatroomId
+                        }),
+                        success: function(response) {
+                            $('#publicMessageInput').val('');
+                        },
+                        error: function(xhr) {
+                            alert('发送失败: ' + xhr.responseJSON.error);
+                        }
+                    });
+                }
+            });
+            
+            // 接收新公共消息
+            socket.on('new_message', function(data) {
+                const messageClass = data.sender_id == userId ? 'message-self' : 'message-other';
+                const teacherClass = data.sender_role == 'teacher' ? 'message-teacher' : '';
+                
+                const messageHtml = `
+                    <div class="message ${messageClass} ${teacherClass}">
+                        <div class="d-flex justify-content-between">
+                            <strong>${data.sender_name}</strong>
+                            <small class="text-muted">${data.sent_at}</small>
+                        </div>
+                        <div>${data.content}</div>
+                    </div>
+                `;
+                
+                $('#publicChatContainer').append(messageHtml);
+                scrollToBottom('publicChatContainer');
+            });
+            
+            // 选择私聊用户
+            $('.user-item').click(function() {
+                const receiverId = $(this).data('user-id');
+                const receiverName = $(this).data('user-name');
+                
+                // 高亮选中的用户
+                $('.user-item').removeClass('active');
+                $(this).addClass('active');
+                
+                // 设置接收者信息
+                $('#receiverId').val(receiverId);
+                $('#receiverName').val(receiverName);
+                
+                // 启用消息输入框
+                $('#privateMessageInput').prop('disabled', false).attr('placeholder', `发送给 ${receiverName} 的消息...`);
+                $('#privateMessageForm button').prop('disabled', false);
+                
+                // 过滤显示与该用户的私聊消息
+                $('.message-private').hide();
+                $(`.message-private[data-sender="${userId}"][data-receiver="${receiverId}"]`).show();
+                $(`.message-private[data-sender="${receiverId}"][data-receiver="${userId}"]`).show();
+                
+                // 滚动到底部
+                scrollToBottom('privateChatContainer');
+            });
+            
+            // 发送私人消息
+            $('#privateMessageForm').submit(function(e) {
+                e.preventDefault();
+                const content = $('#privateMessageInput').val().trim();
+                const receiverId = $('#receiverId').val();
+                
+                if (content && receiverId) {
+                    $.ajax({
+                        url: '/api/message/private',
+                        type: 'POST',
+                        contentType: 'application/json',
+                        data: JSON.stringify({
+                            content: content,
+                            chatroom_id: chatroomId,
+                            receiver_id: receiverId
+                        }),
+                        success: function(response) {
+                            $('#privateMessageInput').val('');
+                        },
+                        error: function(xhr) {
+                            alert('发送失败: ' + xhr.responseJSON.error);
+                        }
+                    });
+                }
+            });
+            
+            // 接收新私人消息
+            socket.on('new_private_message', function(data) {
+                const messageClass = data.sender_id == userId ? 'message-self' : 'message-other';
+                
+                const messageHtml = `
+                    <div class="message message-private ${messageClass}" data-sender="${data.sender_id}" data-receiver="${data.receiver_id}">
+                        <div class="d-flex justify-content-between">
+                            <strong>${data.sender_name} → ${data.receiver_name}</strong>
+                            <small class="text-muted">${data.sent_at}</small>
+                        </div>
+                        <div>${data.content}</div>
+                    </div>
+                `;
+                
+                $('#privateChatContainer').append(messageHtml);
+                
+                // 如果当前没有选中用户，或者选中的不是消息相关的用户，则隐藏消息
+                const currentReceiverId = $('#receiverId').val();
+                if (!currentReceiverId || (currentReceiverId != data.sender_id && currentReceiverId != data.receiver_id)) {
+                    $('.message-private').last().hide();
+                } else {
+                    scrollToBottom('privateChatContainer');
+                }
+            });
+            
+            // 题目类型切换
+            $('#questionType').change(function() {
+                const type = $(this).val();
+                if (type === 'choice') {
+                    $('#choiceOptionsContainer').show();
+                    $('#otherAnswerContainer').hide();
+                } else {
+                    $('#choiceOptionsContainer').hide();
+                    $('#otherAnswerContainer').show();
+                }
+            });
+            
+            // 添加选项
+            $('#addOption').click(function() {
+                const optionCount = $('.option-input').length;
+                const newOption = `
+                    <div class="input-group mb-2">
+                        <div class="input-group-text">
+                            <input class="form-check-input mt-0" type="radio" name="correctOption" value="${optionCount}">
+                        </div>
+                        <input type="text" class="form-control option-input" placeholder="选项${optionCount + 1}">
+                        <button type="button" class="btn btn-outline-danger remove-option">删除</button>
+                    </div>
+                `;
+                
+                $('#optionsContainer').append(newOption);
+                
+                // 如果有超过2个选项，启用删除按钮
+                if (optionCount + 1 > 2) {
+                    $('.remove-option').prop('disabled', false);
+                }
+            });
+            
+            // 删除选项
+            $(document).on('click', '.remove-option', function() {
+                $(this).closest('.input-group').remove();
+                
+                // 重新编号选项
+                $('.option-input').each(function(index) {
+                    $(this).attr('placeholder', `选项${index + 1}`);
+                    $(this).prev().find('input[type="radio"]').val(index);
+                });
+                
+                // 如果只剩2个选项，禁用删除按钮
+                if ($('.option-input').length <= 2) {
+                    $('.remove-option').prop('disabled', true);
+                }
+            });
+            
+            // 签到类型切换
+            $('#attendanceType').change(function() {
+                const type = $(this).val();
+                if (type === 'password') {
+                    $('#passwordContainer').show();
+                } else {
+                    $('#passwordContainer').hide();
+                }
+            });
+            
+            // 创建题目
+            $('#submitQuestion').click(function() {
+                const title = $('#questionTitle').val().trim();
+                const content = $('#questionContent').val().trim();
+                const type = $('#questionType').val();
+                
+                if (!title || !content) {
+                    alert('请填写题目标题和内容');
+                    return;
+                }
+                
+                let options = null;
+                let answer = null;
+                
+                if (type === 'choice') {
+                    options = [];
+                    $('.option-input').each(function() {
+                        options.push($(this).val().trim());
+                    });
+                    
+                    // 检查选项是否为空
+                    if (options.some(option => !option)) {
+                        alert('选项不能为空');
+                        return;
+                    }
+                    
+                    answer = $('input[name="correctOption"]:checked').val();
+                } else {
+                    answer = $('#questionAnswer').val().trim();
+                }
+                
+                $.ajax({
+                    url: '/api/question/create',
+                    type: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify({
+                        title: title,
+                        content: content,
+                        type: type,
+                        options: options,
+                        answer: answer,
+                        chatroom_id: chatroomId
+                    }),
+                    success: function(response) {
+                        $('#createQuestionModal').modal('hide');
+                        // 重置表单
+                        $('#createQuestionForm')[0].reset();
+                        // 切换到题目标签
+                        $('#questions-tab').tab('show');
+                    },
+                    error: function(xhr) {
+                        alert('创建失败: ' + xhr.responseJSON.error);
+                    }
+                });
+            });
+            
+            // 接收新题目
+            socket.on('new_question', function(data) {
+                let optionsHtml = '';
+                
+                if (data.type === 'choice' && data.options) {
+                    optionsHtml = '<div class="mb-3">';
+                    data.options.forEach((option, index) => {
+                        optionsHtml += `
+                            <div class="form-check">
+                                <input class="form-check-input question-option" type="radio" name="question_${data.id}" id="option_${data.id}_${index}" value="${index}">
+                                <label class="form-check-label" for="option_${data.id}_${index}">
+                                    ${option}
+                                </label>
+                            </div>
+                        `;
+                    });
+                    optionsHtml += '</div>';
+                } else {
+                    optionsHtml = `
+                        <div class="mb-3">
+                            <textarea class="form-control question-answer" rows="3" placeholder="请输入您的答案..." data-question-id="${data.id}"></textarea>
+                        </div>
+                    `;
+                }
+                
+                const questionHtml = `
+                    <div class="card question-card">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <h5 class="mb-0">${data.title}</h5>
+                            <span class="badge bg-${data.type === 'choice' ? 'primary' : data.type === 'open' ? 'success' : 'info'}">
+                                ${data.type === 'choice' ? '选择题' : data.type === 'open' ? '开放题' : '简答题'}
+                            </span>
+                        </div>
+                        <div class="card-body">
+                            <p>${data.content}</p>
+                            ${optionsHtml}
+                            <button class="btn btn-primary submit-answer" data-question-id="${data.id}" data-question-type="${data.type}">
+                                提交答案
+                            </button>
+                        </div>
+                    </div>
+                `;
+                
+                // 如果没有题目，清除提示
+                if ($('#questionsList .text-center').length) {
+                    $('#questionsList').empty();
+                }
+                
+                // 添加新题目到顶部
+                $('#questionsList').prepend(questionHtml);
+                
+                // 如果当前不在题目标签，显示提示
+                if (!$('#questions-tab').hasClass('active')) {
+                    alert('有新题目发布，请切换到"题目"标签查看');
+                }
+            });
+            
+            // 提交答案
+            $(document).on('click', '.submit-answer', function() {
+                const questionId = $(this).data('question-id');
+                const questionType = $(this).data('question-type');
+                let content = '';
+                
+                if (questionType === 'choice') {
+                    const selectedOption = $(`input[name="question_${questionId}"]:checked`).val();
+                    if (!selectedOption) {
+                        alert('请选择一个选项');
+                        return;
+                    }
+                    content = selectedOption;
+                } else {
+                    content = $(this).closest('.card-body').find('.question-answer').val().trim();
+                    if (!content) {
+                        alert('请输入您的答案');
+                        return;
+                    }
+                }
+                
+                const button = $(this);
+                button.prop('disabled', true).text('提交中...');
+                
+                $.ajax({
+                    url: '/api/question/answer',
+                    type: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify({
+                        question_id: questionId,
+                        content: content
+                    }),
+                    success: function(response) {
+                        button.removeClass('btn-primary').addClass('btn-success').text('已提交');
+                        
+                        // 禁用输入
+                        if (questionType === 'choice') {
+                            $(`input[name="question_${questionId}"]`).prop('disabled', true);
+                        } else {
+                            button.closest('.card-body').find('.question-answer').prop('disabled', true);
+                        }
+                        
+                        // 如果是选择题且有分数
+                        if (questionType === 'choice' && response.score !== null) {
+                            const scoreText = response.score === 100 ? '回答正确' : '回答错误';
+                            const scoreClass = response.score === 100 ? 'success' : 'danger';
+                            
+                            button.after(`
+                                <div class="mt-2 text-${scoreClass}">
+                                    <i class="bi bi-${response.score === 100 ? 'check-circle' : 'x-circle'}"></i> ${scoreText}
+                                </div>
+                            `);
+                        }
+                    },
+                    error: function(xhr) {
+                        button.prop('disabled', false).text('提交答案');
+                        alert('提交失败: ' + xhr.responseJSON.error);
+                    }
+                });
+            });
+            
+            // 创建签到
+            $('#submitAttendance').click(function() {
+                const title = $('#attendanceTitle').val().trim();
+                const type = $('#attendanceType').val();
+                const password = type === 'password' ? $('#attendancePassword').val().trim() : null;
+                const expireMinutes = $('#expireMinutes').val().trim() ? parseInt($('#expireMinutes').val().trim()) : null;
+                
+                if (!title) {
+                    alert('请填写签到标题');
+                    return;
+                }
+                
+                if (type === 'password' && !password) {
+                    alert('请设置签到密码');
+                    return;
+                }
+                
+                $.ajax({
+                    url: '/api/attendance/create',
+                    type: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify({
+                        title: title,
+                        type: type,
+                        password: password,
+                        chatroom_id: chatroomId,
+                        expire_minutes: expireMinutes
+                    }),
+                    success: function(response) {
+                        $('#createAttendanceModal').modal('hide');
+                        // 重置表单
+                        $('#createAttendanceForm')[0].reset();
+                        // 切换到签到标签
+                        $('#attendance-tab').tab('show');
+                    },
+                    error: function(xhr) {
+                        alert('创建失败: ' + xhr.responseJSON.error);
+                    }
+                });
+            });
+            
+            // 接收新签到
+            socket.on('new_attendance', function(data) {
+                let actionHtml = '';
+                
+                if (userRole === 'student') {
+                    if (data.type === 'click') {
+                        actionHtml = `
+                            <button class="btn btn-primary attendance-sign" data-attendance-id="${data.id}" data-attendance-type="click">
+                                点击签到
+                            </button>
+                        `;
+                    } else {
+                        actionHtml = `
+                            <div class="input-group mb-3">
+                                <input type="password" class="form-control attendance-password" placeholder="请输入签到密码">
+                                <button class="btn btn-primary attendance-sign" data-attendance-id="${data.id}" data-attendance-type="password">
+                                    密码签到
+                                </button>
+                            </div>
+                        `;
+                    }
+                } else {
+                    actionHtml = `
+                        <button class="btn btn-info view-attendance-records" data-attendance-id="${data.id}">
+                            查看签到记录
+                        </button>
+                    `;
+                }
+                
+                const expireHtml = data.expire_at ? `<p class="text-muted">截止时间: ${data.expire_at}</p>` : '';
+                
+                const attendanceHtml = `
+                    <div class="card mb-3">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <h5 class="mb-0">${data.title}</h5>
+                            <span class="badge bg-${data.type === 'click' ? 'primary' : 'warning'}">
+                                ${data.type === 'click' ? '点击签到' : '密码签到'}
+                            </span>
+                        </div>
+                        <div class="card-body">
+                            ${expireHtml}
+                            ${actionHtml}
+                        </div>
+                    </div>
+                `;
+                
+                // 如果没有签到，清除提示
+                if ($('#attendanceList .text-center').length) {
+                    $('#attendanceList').empty();
+                }
+                
+                // 添加新签到到顶部
+                $('#attendanceList').prepend(attendanceHtml);
+                
+                // 如果当前不在签到标签，显示提示
+                if (!$('#attendance-tab').hasClass('active')) {
+                    alert('有新签到发布，请切换到"签到"标签查看');
+                }
+            });
+            
+            // 学生签到
+            $(document).on('click', '.attendance-sign', function() {
+                const attendanceId = $(this).data('attendance-id');
+                const attendanceType = $(this).data('attendance-type');
+                let password = null;
+                
+                if (attendanceType === 'password') {
+                    password = $(this).closest('.input-group').find('.attendance-password').val().trim();
+                    if (!password) {
+                        alert('请输入签到密码');
+                        return;
+                    }
+                }
+                
+                const button = $(this);
+                button.prop('disabled', true).text('签到中...');
+                
+                $.ajax({
+                    url: '/api/attendance/sign',
+                    type: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify({
+                        attendance_id: attendanceId,
+                        password: password
+                    }),
+                    success: function(response) {
+                        // 替换签到按钮为成功提示
+                        if (attendanceType === 'password') {
+                            button.closest('.input-group').replaceWith(`
+                                <div class="alert alert-success">
+                                    <i class="bi bi-check-circle"></i> 您已完成签到
+                                </div>
+                            `);
+                        } else {
+                            button.replaceWith(`
+                                <div class="alert alert-success">
+                                    <i class="bi bi-check-circle"></i> 您已完成签到
+                                </div>
+                            `);
+                        }
+                    },
+                    error: function(xhr) {
+                        button.prop('disabled', false).text(attendanceType === 'click' ? '点击签到' : '密码签到');
+                        alert('签到失败: ' + xhr.responseJSON.error);
+                    }
+                });
+            });
+            
+            // 接收新签到记录
+            socket.on('new_attendance_record', function(data) {
+                // 如果是教师，可以在这里更新签到记录列表
+                if (userRole === 'teacher') {
+                    // 实现签到记录更新逻辑
+                }
+            });
+            
+            // 用户加入聊天室
+            socket.on('user_joined', function(data) {
+                // 可以在这里添加用户加入提示
+            });
+            
+            // 用户离开聊天室
+            socket.on('user_left', function(data) {
+                // 可以在这里添加用户离开提示
+            });
+        });
+    </script>
+</body>
+</html>
